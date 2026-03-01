@@ -77,7 +77,7 @@ func Extract(data []byte, minLen int, enc string, sections []internal.SectionInf
 			Entropy:         ent,
 			EntropyLabel:    entropy.Label(ent),
 			SuspiciousGroup: apiGroup,
-			Source:           "raw",
+			Source:          "raw",
 			Length:          len(s),
 		}
 
