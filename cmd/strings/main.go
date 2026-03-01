@@ -107,7 +107,7 @@ func processFile(fp string) ([]internal.StringResult, []internal.SectionInfo) {
 	}
 
 	if !*quiet {
-		fmt.Fprintf(os.Stderr, "  scanning: %s (%s)\n", fp, formatSize(info.Size()))
+		fmt.Fprintf(os.Stderr, "  scanning: %s (%s)\n", fp, internal.FormatSize(info.Size()))
 	}
 
 	sections := parser.ParseSections(fp)
@@ -126,7 +126,12 @@ func processFile(fp string) ([]internal.StringResult, []internal.SectionInfo) {
 		if *ignoreCase {
 			flags = "(?i)"
 		}
-		filterPat = regexp.MustCompile(flags + *filter)
+		var err error
+		filterPat, err = regexp.Compile(flags + *filter)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  error: invalid regex %q: %v\n", *filter, err)
+			os.Exit(1)
+		}
 	}
 
 	var onlyCats map[string]bool
@@ -144,13 +149,14 @@ func processFile(fp string) ([]internal.StringResult, []internal.SectionInfo) {
 		}
 	}
 
-	data, err := scanner.LoadFile(fp)
+	data, cleanup, err := scanner.LoadFile(fp)
 	if err != nil {
 		if !*quiet {
 			fmt.Fprintf(os.Stderr, "  error loading file: %v\n", err)
 		}
 		return nil, nil
 	}
+	defer cleanup()
 
 	var allResults []internal.StringResult
 	seen := make(map[string]bool)
@@ -351,7 +357,7 @@ func printStats(results []internal.StringResult, fp string, sections []internal.
 		fmt.Fprintf(os.Stderr, "  %s\n", strings.Repeat("-", W))
 		fmt.Fprintf(os.Stderr, "  Sections:\n")
 		for _, sec := range sections {
-			fmt.Fprintf(os.Stderr, "    %-12s  offset=0x%08X  size=%s\n", sec.Name, sec.Offset, formatSize(sec.Size))
+			fmt.Fprintf(os.Stderr, "    %-12s  offset=0x%08X  size=%s\n", sec.Name, sec.Offset, internal.FormatSize(sec.Size))
 		}
 	}
 	fmt.Fprintf(os.Stderr, "  %s\n", strings.Repeat("=", W))
@@ -420,14 +426,3 @@ func catColor(c string) string {
 	return "gray"
 }
 
-func formatSize(size int64) string {
-	units := []string{"B", "KB", "MB", "GB"}
-	s := float64(size)
-	for _, u := range units {
-		if s < 1024 {
-			return fmt.Sprintf("%.1f %s", s, u)
-		}
-		s /= 1024
-	}
-	return fmt.Sprintf("%.1f TB", s)
-}
