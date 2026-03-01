@@ -5,6 +5,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/butwhoistrace/strings/internal"
@@ -20,36 +21,60 @@ var encodingPatterns = map[string]string{
 	"utf-16-be": `(?:\x00[\x20-\x7e\x09]){%d,}`,
 }
 
-func LoadFile(filepath string) ([]byte, error) {
+var (
+	regexCacheMu sync.Mutex
+	regexCache   = make(map[string]*regexp.Regexp)
+)
+
+func getEncodingRegex(enc string, minLen int) *regexp.Regexp {
+	key := fmt.Sprintf("%s:%d", enc, minLen)
+	regexCacheMu.Lock()
+	defer regexCacheMu.Unlock()
+	if pat, ok := regexCache[key]; ok {
+		return pat
+	}
+	patStr := fmt.Sprintf(encodingPatterns[enc], minLen)
+	pat := regexp.MustCompile(patStr)
+	regexCache[key] = pat
+	return pat
+}
+
+func LoadFile(filepath string) ([]byte, func(), error) {
+	noop := func() {}
+
 	info, err := os.Stat(filepath)
 	if err != nil {
-		return nil, err
+		return nil, noop, err
 	}
 
 	if info.Size() == 0 {
-		return []byte{}, nil
+		return []byte{}, noop, nil
 	}
 
 	if info.Size() < 1_000_000 {
-		return os.ReadFile(filepath)
+		data, err := os.ReadFile(filepath)
+		return data, noop, err
 	}
 
 	f, err := os.Open(filepath)
 	if err != nil {
-		return nil, err
+		return nil, noop, err
 	}
 	defer f.Close()
 
 	data, err := syscall.Mmap(int(f.Fd()), 0, int(info.Size()), syscall.PROT_READ, syscall.MAP_PRIVATE)
 	if err != nil {
-		return os.ReadFile(filepath)
+		data, err := os.ReadFile(filepath)
+		return data, noop, err
 	}
-	return data, nil
+	cleanup := func() {
+		syscall.Munmap(data)
+	}
+	return data, cleanup, nil
 }
 
 func Extract(data []byte, minLen int, enc string, sections []internal.SectionInfo, filterPat *regexp.Regexp, showContext bool) []internal.StringResult {
-	patStr := fmt.Sprintf(encodingPatterns[enc], minLen)
-	pat := regexp.MustCompile(patStr)
+	pat := getEncodingRegex(enc, minLen)
 
 	matches := pat.FindAllIndex(data, -1)
 	results := make([]internal.StringResult, 0, len(matches))

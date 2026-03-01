@@ -35,7 +35,10 @@ func Generate(results []internal.StringResult, filePath string, sections []inter
 	}
 
 	t := threat.Assess(results)
-	info, _ := os.Stat(filePath)
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", filePath, err)
+	}
 	fileSize := info.Size()
 	fileName := filepath.Base(filePath)
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
@@ -68,8 +71,10 @@ func Generate(results []internal.StringResult, filePath string, sections []inter
 		}
 	}
 
-	resultsJSON, _ := json.Marshal(entries)
-	_, _ = json.Marshal(sections)
+	resultsJSON, err := json.Marshal(entries)
+	if err != nil {
+		return fmt.Errorf("marshal results: %w", err)
+	}
 
 	levelColor := map[string]string{"LOW": "#30a46c", "MEDIUM": "#f5d90a", "HIGH": "#e5484d", "CRITICAL": "#e5484d"}[t.Level]
 
@@ -128,7 +133,7 @@ function xJSON(){const b=new Blob([JSON.stringify(F,null,2)],{type:'application/
 function xCSV(){let c='offset,encoding,section,categories,entropy,source,xor_key,value\n';F.forEach(r=>{c+=r.offset+','+r.encoding+','+r.section+',"'+r.categories.join(';')+'",'+r.entropy+','+r.source+','+r.xor_key+',"'+r.value.replace(/"/g,'""')+'"\n'});const b=new Blob([c],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='%s_strings.csv';a.click()}
 bF();rT();
 </script></body></html>`,
-		fileName, fileName, formatSize(fileSize), len(sections), timestamp,
+		fileName, fileName, internal.FormatSize(fileSize), len(sections), timestamp,
 		levelColor, levelColor, levelColor, t.Level, t.Score,
 		formatNum(total), highEntropy, suspicious, sourceCounts["base64"], sourceCounts["xor"],
 		formatNum(total),
@@ -138,17 +143,6 @@ bF();rT();
 	return nil
 }
 
-func formatSize(size int64) string {
-	units := []string{"B", "KB", "MB", "GB"}
-	s := float64(size)
-	for _, u := range units {
-		if s < 1024 {
-			return fmt.Sprintf("%.1f %s", s, u)
-		}
-		s /= 1024
-	}
-	return fmt.Sprintf("%.1f TB", s)
-}
 
 func formatNum(n int) string {
 	s := fmt.Sprintf("%d", n)

@@ -50,7 +50,6 @@ func Print(d DiffResult, fileA, fileB string, color bool) {
 	nameA := filepath.Base(fileA)
 	nameB := filepath.Base(fileB)
 
-	fmt.Fprintf(nil, "")
 	red := func(s string) string { return s }
 	green := func(s string) string { return s }
 	bold := func(s string) string { return s }

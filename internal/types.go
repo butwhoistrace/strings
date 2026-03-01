@@ -1,5 +1,7 @@
 package internal
 
+import "fmt"
+
 type StringResult struct {
 	Value           string   `json:"value"`
 	Offset          int64    `json:"offset"`
@@ -35,23 +37,14 @@ type ThreatDetails struct {
 	Score  int `json:"score"`
 }
 
-type ScanConfig struct {
-	MinLength  int
-	Encodings  []string
-	Base64     bool
-	Xor        bool
-	ShowOffset bool
-	Context    bool
-	Dedup      bool
-	Filter     string
-	IgnoreCase bool
-	Only       string
-	Quiet      bool
-	Color      bool
-	Json       bool
-	Csv        bool
-	Stats      bool
-	Threat     bool
-	Report     string
-	DiffFile   string
+func FormatSize(size int64) string {
+	units := []string{"B", "KB", "MB", "GB"}
+	s := float64(size)
+	for _, u := range units {
+		if s < 1024 {
+			return fmt.Sprintf("%.1f %s", s, u)
+		}
+		s /= 1024
+	}
+	return fmt.Sprintf("%.1f TB", s)
 }
