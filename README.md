@@ -1,4 +1,4 @@
-# strings
+# bstrings
 
 Binary string extractor for PE/ELF files. Like Linux `strings` but with categorization, entropy analysis, base64 decoding, XOR bruteforce, threat assessment and more.
 
@@ -7,23 +7,23 @@ Written in Go. Single binary, no dependencies.
 ## Install
 
 ```bash
-go install github.com/butwhoistrace/strings/cmd/strings@latest
+go install github.com/butwhoistrace/strings/cmd/bstrings@latest
 ```
 
-That's it. Now use `strings` from anywhere.
+That's it. Now use `bstrings` from anywhere.
 
 ### Build from source
 
 ```bash
 git clone https://github.com/butwhoistrace/strings.git
 cd strings
-go build -o strings.exe ./cmd/strings/
+go build -o bstrings ./cmd/bstrings/
 ```
 
 ## Usage
 
 ```bash
-strings <file> [options]
+bstrings <file> [options]
 ```
 
 ## Options
@@ -52,39 +52,39 @@ strings <file> [options]
 ## Category Filter (-only)
 
 ```bash
-strings file.exe -only urls          # URLs
-strings file.exe -only apis          # Windows API calls
-strings file.exe -only passwords     # credentials, tokens, keys
-strings file.exe -only network       # URLs, IPs, domains, ports
-strings file.exe -only paths         # file paths, registry keys
-strings file.exe -only crypto        # crypto keys, certificates
-strings file.exe -only hashes        # MD5, SHA1, SHA256
-strings file.exe -only emails        # email addresses
-strings file.exe -only suspicious    # high entropy + APIs + creds
-strings file.exe -only urls,passwords,network  # combine
+bstrings file.exe -only urls          # URLs
+bstrings file.exe -only apis          # Windows API calls
+bstrings file.exe -only passwords     # credentials, tokens, keys
+bstrings file.exe -only network       # URLs, IPs, domains, ports
+bstrings file.exe -only paths         # file paths, registry keys
+bstrings file.exe -only crypto        # crypto keys, certificates
+bstrings file.exe -only hashes        # MD5, SHA1, SHA256
+bstrings file.exe -only emails        # email addresses
+bstrings file.exe -only suspicious    # high entropy + APIs + creds
+bstrings file.exe -only urls,passwords,network  # combine
 ```
 
 ## Examples
 
 ```bash
 # full scan
-strings malware.exe -a -d -base64 -xor -stats -threat -color
+bstrings malware.exe -a -d -base64 -xor -stats -threat -color
 
 # html report
-strings malware.exe -a -d -base64 -xor -report report.html
+bstrings malware.exe -a -d -base64 -xor -report report.html
 
 # only interesting stuff
-strings app.exe -a -only suspicious -threat -color
+bstrings app.exe -a -only suspicious -threat -color
 
 # compare two versions
-strings app_v1.exe -diff app_v2.exe -color
+bstrings app_v1.exe -diff app_v2.exe -color
 
 # pipe friendly
-strings file.exe -only urls -a -d -q | sort -u
+bstrings file.exe -only urls -a -d -q | sort -u
 
 # export
-strings file.exe -a -d -json > results.json
-strings file.exe -a -d -csv > results.csv
+bstrings file.exe -a -d -json > results.json
+bstrings file.exe -a -d -csv > results.csv
 ```
 
 ## Features
