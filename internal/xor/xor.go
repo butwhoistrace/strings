@@ -14,6 +14,13 @@ import (
 var interestingPattern = regexp.MustCompile(`(?i)https?://|\.exe\b|\.dll\b|\.bat\b|\.cmd\b|\.ps1\b|cmd\.exe|powershell|\\windows\\|password|username|admin|HKEY_|BEGIN\s+(?:RSA|CERTIFICATE|PRIVATE)|api[_\-]?key|secret|token|\.onion\b|socket|connect`)
 
 func Bruteforce(data []byte, minLen int, sections []internal.SectionInfo, quiet bool) []internal.StringResult {
+	if len(data) == 0 {
+		return nil
+	}
+	if minLen < 1 {
+		minLen = 1
+	}
+
 	asciiPat := regexp.MustCompile(fmt.Sprintf(`[\x20-\x7e\x09]{%d,}`, minLen))
 	seen := make(map[string]bool)
 	var results []internal.StringResult

@@ -6,9 +6,9 @@ var patterns = map[string]*regexp.Regexp{
 	"url":          regexp.MustCompile(`https?://[^\s<>"']+|ftp://[^\s<>"']+|www\.[^\s<>"']+`),
 	"email":        regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`),
 	"ipv4":         regexp.MustCompile(`\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b`),
-	"ipv6":         regexp.MustCompile(`\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b`),
-	"domain":       regexp.MustCompile(`\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+(?:com|net|org|io|ru|cn|tk|xyz|top|info|biz|cc|pw|onion|edu|gov|mil|co)\b`),
-	"win_path":     regexp.MustCompile(`[A-Za-z]:\\(?:[^\s\\/:*?"<>|]+\\)*[^\s\\/:*?"<>|]*`),
+	"ipv6":         regexp.MustCompile(`\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}|[0-9a-fA-F]{1,4}::(?:[0-9a-fA-F]{1,4}:){0,4}[0-9a-fA-F]{1,4}`),
+	"domain":       regexp.MustCompile(`\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+(?:com|net|org|io|ru|cn|tk|xyz|top|info|biz|cc|pw|onion|edu|gov|mil|co|uk|de|fr|jp|au|br|in|nl|it|es|ca|pl|ch|se|no|fi|dk|at|be|cz|kr|tw|mx|za|ar|id|ph|th|vn|sg|hk|nz|ie|pt|il|my|ua|ro|hu|cl|ng|ke|app|dev|gg|me|tv|pro|ai|cloud|site|online|tech|store|blog|live)\b`),
+	"win_path":     regexp.MustCompile(`[A-Za-z]:\\(?:[^\\//:*?"<>|\r\n]+\\)*[^\\//:*?"<>|\r\n]*`),
 	"unix_path":    regexp.MustCompile(`(?:/[a-zA-Z0-9._\-]+){2,}`),
 	"registry":     regexp.MustCompile(`(?:HKEY_[A-Z_]+|HKLM|HKCU|HKCR)\\[^\s]+`),
 	"dll_api":      regexp.MustCompile(`(?i)\b[A-Za-z_][A-Za-z0-9_]*\.(?:dll|sys|ocx|drv)\b|\b(?:Create|Open|Read|Write|Close|Delete|Find|Get|Set|Load|Free|Virtual|Reg|Crypt|Http|Internet|Socket|WSA|Nt|Zw)[A-Z][a-zA-Z0-9_]*(?:A|W|Ex|ExA|ExW)?\b`),
@@ -34,6 +34,20 @@ var suspiciousAPIs = map[string][]string{
 	"evasion":   {"IsDebuggerPresent", "CheckRemoteDebuggerPresent", "NtQueryInformationProcess", "GetTickCount", "Sleep", "VirtualProtect", "OutputDebugString", "NtSetInformationThread", "QueryPerformanceCounter", "GetSystemTime"},
 	"privilege": {"AdjustTokenPrivileges", "OpenProcessToken", "LookupPrivilegeValue", "ImpersonateLoggedOnUser", "DuplicateToken", "SetThreadToken"},
 	"service":   {"OpenSCManager", "CreateService", "StartService", "ControlService", "DeleteService", "ChangeServiceConfig"},
+}
+
+// Pre-compute lowercased API names to avoid per-call allocations
+var suspiciousAPIsLower map[string][]string
+
+func init() {
+	suspiciousAPIsLower = make(map[string][]string, len(suspiciousAPIs))
+	for group, apis := range suspiciousAPIs {
+		lowered := make([]string, len(apis))
+		for i, api := range apis {
+			lowered[i] = toLower(api)
+		}
+		suspiciousAPIsLower[group] = lowered
+	}
 }
 
 var OnlyPresets = map[string][]string{
@@ -63,9 +77,9 @@ func Categorize(s string) []string {
 
 func GetSuspiciousGroup(s string) string {
 	lower := toLower(s)
-	for group, apis := range suspiciousAPIs {
+	for group, apis := range suspiciousAPIsLower {
 		for _, api := range apis {
-			if containsLower(lower, toLower(api)) {
+			if containsLower(lower, api) {
 				return group
 			}
 		}

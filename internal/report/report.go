@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/butwhoistrace/strings/internal"
 	"github.com/butwhoistrace/strings/internal/threat"
@@ -61,7 +63,7 @@ func Generate(results []internal.StringResult, filePath string, sections []inter
 	for i, r := range results {
 		val := r.Value
 		if len(val) > 500 {
-			val = val[:500]
+			val = truncateUTF8(val, 500)
 		}
 		entries[i] = jsonEntry{
 			Value: val, Offset: r.Offset, Encoding: r.Encoding,
@@ -75,6 +77,9 @@ func Generate(results []internal.StringResult, filePath string, sections []inter
 	if err != nil {
 		return fmt.Errorf("marshal results: %w", err)
 	}
+	// Prevent XSS: escape </script> sequences in JSON embedded in HTML
+	safeJSON := strings.ReplaceAll(string(resultsJSON), "</script>", `<\/script>`)
+	safeJSON = strings.ReplaceAll(safeJSON, "</Script>", `<\/Script>`)
 
 	levelColor := map[string]string{"LOW": "#30a46c", "MEDIUM": "#f5d90a", "HIGH": "#e5484d", "CRITICAL": "#e5484d"}[t.Level]
 
@@ -137,12 +142,22 @@ bF();rT();
 		levelColor, levelColor, levelColor, t.Level, t.Score,
 		formatNum(total), highEntropy, suspicious, sourceCounts["base64"], sourceCounts["xor"],
 		formatNum(total),
-		string(resultsJSON),
+		safeJSON,
 		fileName, fileName,
 	)
 	return nil
 }
 
+
+func truncateUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	for maxBytes > 0 && !utf8.RuneStart(s[maxBytes]) {
+		maxBytes--
+	}
+	return s[:maxBytes]
+}
 
 func formatNum(n int) string {
 	s := fmt.Sprintf("%d", n)

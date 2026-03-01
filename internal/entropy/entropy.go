@@ -1,22 +1,26 @@
 package entropy
 
-import "math"
+import (
+	"math"
+	"unicode/utf8"
+)
 
 func Calculate(s string) float64 {
-	if len(s) <= 1 {
+	runeCount := utf8.RuneCountInString(s)
+	if runeCount <= 1 {
 		return 0.0
 	}
 	freq := make(map[rune]int)
 	for _, c := range s {
 		freq[c]++
 	}
-	length := float64(len(s))
+	length := float64(runeCount)
 	result := 0.0
 	for _, count := range freq {
 		p := float64(count) / length
 		result -= p * math.Log2(p)
 	}
-	return result
+	return math.Round(result*100) / 100
 }
 
 func Label(e float64) string {

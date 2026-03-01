@@ -1,12 +1,15 @@
 package scanner
 
 import (
+	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strings"
 	"sync"
 	"syscall"
+	"unicode/utf16"
 
 	"github.com/butwhoistrace/strings/internal"
 	"github.com/butwhoistrace/strings/internal/categorizer"
@@ -26,17 +29,21 @@ var (
 	regexCache   = make(map[string]*regexp.Regexp)
 )
 
-func getEncodingRegex(enc string, minLen int) *regexp.Regexp {
+func getEncodingRegex(enc string, minLen int) (*regexp.Regexp, bool) {
+	patFmt, ok := encodingPatterns[enc]
+	if !ok {
+		return nil, false
+	}
 	key := fmt.Sprintf("%s:%d", enc, minLen)
 	regexCacheMu.Lock()
 	defer regexCacheMu.Unlock()
 	if pat, ok := regexCache[key]; ok {
-		return pat
+		return pat, true
 	}
-	patStr := fmt.Sprintf(encodingPatterns[enc], minLen)
+	patStr := fmt.Sprintf(patFmt, minLen)
 	pat := regexp.MustCompile(patStr)
 	regexCache[key] = pat
-	return pat
+	return pat, true
 }
 
 func LoadFile(filepath string) ([]byte, func(), error) {
@@ -52,6 +59,12 @@ func LoadFile(filepath string) ([]byte, func(), error) {
 	}
 
 	if info.Size() < 1_000_000 {
+		data, err := os.ReadFile(filepath)
+		return data, noop, err
+	}
+
+	// Guard against int overflow on 32-bit systems
+	if info.Size() > int64(math.MaxInt) {
 		data, err := os.ReadFile(filepath)
 		return data, noop, err
 	}
@@ -74,7 +87,10 @@ func LoadFile(filepath string) ([]byte, func(), error) {
 }
 
 func Extract(data []byte, minLen int, enc string, sections []internal.SectionInfo, filterPat *regexp.Regexp, showContext bool) []internal.StringResult {
-	pat := getEncodingRegex(enc, minLen)
+	pat, ok := getEncodingRegex(enc, minLen)
+	if !ok {
+		return nil
+	}
 
 	matches := pat.FindAllIndex(data, -1)
 	results := make([]internal.StringResult, 0, len(matches))
@@ -120,17 +136,23 @@ func decodeBytes(raw []byte, enc string) string {
 	case "ascii", "utf-8":
 		return string(raw)
 	case "utf-16-le":
-		var sb strings.Builder
-		for i := 0; i+1 < len(raw); i += 2 {
-			sb.WriteByte(raw[i])
+		if len(raw) < 2 {
+			return ""
 		}
-		return sb.String()
+		u16s := make([]uint16, len(raw)/2)
+		for i := range u16s {
+			u16s[i] = binary.LittleEndian.Uint16(raw[i*2 : i*2+2])
+		}
+		return string(utf16.Decode(u16s))
 	case "utf-16-be":
-		var sb strings.Builder
-		for i := 0; i+1 < len(raw); i += 2 {
-			sb.WriteByte(raw[i+1])
+		if len(raw) < 2 {
+			return ""
 		}
-		return sb.String()
+		u16s := make([]uint16, len(raw)/2)
+		for i := range u16s {
+			u16s[i] = binary.BigEndian.Uint16(raw[i*2 : i*2+2])
+		}
+		return string(utf16.Decode(u16s))
 	}
 	return string(raw)
 }
