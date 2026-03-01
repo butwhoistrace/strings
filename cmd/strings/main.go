@@ -83,6 +83,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *minLength < 1 {
+		fmt.Fprintf(os.Stderr, "  error: minimum string length (-n) must be >= 1\n")
+		os.Exit(1)
+	}
+
 	if *diffFile != "" {
 		handleDiff(files[0], *diffFile)
 		return

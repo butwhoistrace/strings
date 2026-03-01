@@ -10,23 +10,28 @@ import (
 	"github.com/butwhoistrace/strings/internal/parser"
 )
 
-var b64Pattern = regexp.MustCompile(`(?:[A-Za-z0-9+/]{4}){5,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?`)
+var b64Pattern = regexp.MustCompile(`(?:[A-Za-z0-9+/]{4}){3,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?`)
 
 func Extract(data []byte, minLen int, sections []internal.SectionInfo) []internal.StringResult {
+	if minLen < 1 {
+		minLen = 1
+	}
 	matches := b64Pattern.FindAllIndex(data, -1)
-	var results []internal.StringResult
+	results := make([]internal.StringResult, 0, len(matches)/4)
 
 	for _, loc := range matches {
 		raw := data[loc[0]:loc[1]]
-		padding := (4 - len(raw)%4) % 4
-		padded := make([]byte, len(raw)+padding)
-		copy(padded, raw)
-		for i := len(raw); i < len(padded); i++ {
-			padded[i] = '='
+
+		decoded, err := base64.StdEncoding.DecodeString(string(raw))
+		if err != nil {
+			// Try with RawStdEncoding for unpadded base64
+			decoded, err = base64.RawStdEncoding.DecodeString(string(raw))
+			if err != nil {
+				continue
+			}
 		}
 
-		decoded, err := base64.StdEncoding.DecodeString(string(padded))
-		if err != nil {
+		if len(decoded) == 0 || len(decoded) < minLen {
 			continue
 		}
 
@@ -37,9 +42,6 @@ func Extract(data []byte, minLen int, sections []internal.SectionInfo) []interna
 			}
 		}
 
-		if len(decoded) < minLen {
-			continue
-		}
 		if float64(printable)/float64(len(decoded)) < 0.7 {
 			continue
 		}
