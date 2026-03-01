@@ -143,16 +143,23 @@ func parsePE(filepath string) []internal.SectionInfo {
 }
 
 func parseELF(filepath string) []internal.SectionInfo {
-	data, err := os.ReadFile(filepath)
-	if err != nil || len(data) < 64 {
+	f, err := os.Open(filepath)
+	if err != nil {
 		return nil
 	}
-	if !bytes.Equal(data[:4], []byte{0x7f, 'E', 'L', 'F'}) {
+	defer f.Close()
+
+	// Read ELF header (64 bytes is enough for both 32-bit and 64-bit)
+	header := make([]byte, 64)
+	if n, err := f.Read(header); err != nil || n < 64 {
+		return nil
+	}
+	if !bytes.Equal(header[:4], []byte{0x7f, 'E', 'L', 'F'}) {
 		return nil
 	}
 
-	eiClass := data[4]
-	eiData := data[5]
+	eiClass := header[4]
+	eiData := header[5]
 	is64 := eiClass == 2
 
 	var order binary.ByteOrder
@@ -166,80 +173,94 @@ func parseELF(filepath string) []internal.SectionInfo {
 	var shentsize, shnum, shstrndx uint16
 
 	if is64 {
-		if len(data) < 0x40 {
-			return nil
-		}
-		shoff = order.Uint64(data[0x28:0x30])
-		shentsize = order.Uint16(data[0x3A:0x3C])
-		shnum = order.Uint16(data[0x3C:0x3E])
-		shstrndx = order.Uint16(data[0x3E:0x40])
+		shoff = order.Uint64(header[0x28:0x30])
+		shentsize = order.Uint16(header[0x3A:0x3C])
+		shnum = order.Uint16(header[0x3C:0x3E])
+		shstrndx = order.Uint16(header[0x3E:0x40])
 	} else {
-		if len(data) < 0x34 {
+		if len(header) < 0x34 {
 			return nil
 		}
-		shoff = uint64(order.Uint32(data[0x20:0x24]))
-		shentsize = order.Uint16(data[0x2E:0x30])
-		shnum = order.Uint16(data[0x30:0x32])
-		shstrndx = order.Uint16(data[0x32:0x34])
+		shoff = uint64(order.Uint32(header[0x20:0x24]))
+		shentsize = order.Uint16(header[0x2E:0x30])
+		shnum = order.Uint16(header[0x30:0x32])
+		shstrndx = order.Uint16(header[0x32:0x34])
 	}
 
-	if shoff == 0 || shnum == 0 || shentsize == 0 || int64(shoff) >= int64(len(data)) {
+	if shoff == 0 || shnum == 0 || shentsize == 0 {
 		return nil
 	}
-	// Cap shnum to prevent resource exhaustion
 	if shnum > 1024 {
 		return nil
 	}
 
-	// Validate string table index bounds with overflow-safe arithmetic
-	strIdx := int64(shoff) + int64(shstrndx)*int64(shentsize)
-	if strIdx < 0 || strIdx+int64(shentsize) > int64(len(data)) {
+	// Read all section headers at once
+	shSize := int64(shnum) * int64(shentsize)
+	if _, err := f.Seek(int64(shoff), 0); err != nil {
+		return nil
+	}
+	shData := make([]byte, shSize)
+	if n, err := f.Read(shData); err != nil || int64(n) < shSize {
+		return nil
+	}
+
+	// Read string table section header to find strtab location
+	strIdx := int64(shstrndx) * int64(shentsize)
+	if strIdx+int64(shentsize) > shSize {
 		return nil
 	}
 
 	var strtabOff, strtabSz uint64
 	if is64 {
-		if int64(strIdx)+40 > int64(len(data)) {
+		if strIdx+40 > shSize {
 			return nil
 		}
-		strtabOff = order.Uint64(data[strIdx+24 : strIdx+32])
-		strtabSz = order.Uint64(data[strIdx+32 : strIdx+40])
+		strtabOff = order.Uint64(shData[strIdx+24 : strIdx+32])
+		strtabSz = order.Uint64(shData[strIdx+32 : strIdx+40])
 	} else {
-		if int64(strIdx)+24 > int64(len(data)) {
+		if strIdx+24 > shSize {
 			return nil
 		}
-		strtabOff = uint64(order.Uint32(data[strIdx+16 : strIdx+20]))
-		strtabSz = uint64(order.Uint32(data[strIdx+20 : strIdx+24]))
+		strtabOff = uint64(order.Uint32(shData[strIdx+16 : strIdx+20]))
+		strtabSz = uint64(order.Uint32(shData[strIdx+20 : strIdx+24]))
 	}
 
-	if strtabOff > uint64(len(data)) || strtabSz > uint64(len(data)) || strtabOff+strtabSz > uint64(len(data)) {
+	if strtabSz == 0 || strtabSz > 1<<20 {
 		return nil
 	}
-	strtab := data[strtabOff : strtabOff+strtabSz]
+
+	// Read string table
+	if _, err := f.Seek(int64(strtabOff), 0); err != nil {
+		return nil
+	}
+	strtab := make([]byte, strtabSz)
+	if n, err := f.Read(strtab); err != nil || uint64(n) < strtabSz {
+		return nil
+	}
 
 	var sections []internal.SectionInfo
 	for i := 0; i < int(shnum); i++ {
-		off := int64(shoff) + int64(i)*int64(shentsize)
-		if off < 0 || off+int64(shentsize) > int64(len(data)) {
+		off := int64(i) * int64(shentsize)
+		if off+int64(shentsize) > shSize {
 			break
 		}
 
-		shName := order.Uint32(data[off : off+4])
-		var shAddr, shOff, shSize uint64
+		shName := order.Uint32(shData[off : off+4])
+		var shAddr, shOff, shSz uint64
 		if is64 {
-			if off+40 > int64(len(data)) {
+			if off+40 > shSize {
 				break
 			}
-			shAddr = order.Uint64(data[off+16 : off+24])
-			shOff = order.Uint64(data[off+24 : off+32])
-			shSize = order.Uint64(data[off+32 : off+40])
+			shAddr = order.Uint64(shData[off+16 : off+24])
+			shOff = order.Uint64(shData[off+24 : off+32])
+			shSz = order.Uint64(shData[off+32 : off+40])
 		} else {
-			if off+24 > int64(len(data)) {
+			if off+24 > shSize {
 				break
 			}
-			shAddr = uint64(order.Uint32(data[off+12 : off+16]))
-			shOff = uint64(order.Uint32(data[off+16 : off+20]))
-			shSize = uint64(order.Uint32(data[off+20 : off+24]))
+			shAddr = uint64(order.Uint32(shData[off+12 : off+16]))
+			shOff = uint64(order.Uint32(shData[off+16 : off+20]))
+			shSz = uint64(order.Uint32(shData[off+20 : off+24]))
 		}
 
 		name := ""
@@ -250,11 +271,11 @@ func parseELF(filepath string) []internal.SectionInfo {
 			}
 		}
 
-		if shSize > 0 && name != "" {
+		if shSz > 0 && name != "" {
 			sections = append(sections, internal.SectionInfo{
 				Name:           name,
 				Offset:         int64(shOff),
-				Size:           int64(shSize),
+				Size:           int64(shSz),
 				VirtualAddress: shAddr,
 			})
 		}

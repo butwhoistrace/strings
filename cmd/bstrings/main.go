@@ -45,16 +45,16 @@ var (
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "strings - advanced binary string extractor\n\n")
-		fmt.Fprintf(os.Stderr, "usage: strings <file> [options]\n\n")
+		fmt.Fprintf(os.Stderr, "bstrings - advanced binary string extractor\n\n")
+		fmt.Fprintf(os.Stderr, "usage: bstrings <file> [options]\n\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\npresets for --only:\n")
 		fmt.Fprintf(os.Stderr, "  urls, apis, passwords, network, paths, crypto, hashes, emails, suspicious\n")
 		fmt.Fprintf(os.Stderr, "\nexamples:\n")
-		fmt.Fprintf(os.Stderr, "  strings file.exe -a --base64 --xor --report report.html\n")
-		fmt.Fprintf(os.Stderr, "  strings file.exe --only urls,passwords -a --color\n")
-		fmt.Fprintf(os.Stderr, "  strings file.exe --only suspicious --threat --color\n")
-		fmt.Fprintf(os.Stderr, "  strings app_v1.exe --diff app_v2.exe --color\n")
+		fmt.Fprintf(os.Stderr, "  bstrings file.exe -a --base64 --xor --report report.html\n")
+		fmt.Fprintf(os.Stderr, "  bstrings file.exe --only urls,passwords -a --color\n")
+		fmt.Fprintf(os.Stderr, "  bstrings file.exe --only suspicious --threat --color\n")
+		fmt.Fprintf(os.Stderr, "  bstrings app_v1.exe --diff app_v2.exe --color\n")
 	}
 
 	args := os.Args[1:]
@@ -65,8 +65,9 @@ func main() {
 		if strings.HasPrefix(a, "-") {
 			flagArgs = append(flagArgs, a)
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				needsVal := a == "-n" || a == "-e" || a == "-f" || a == "--only" || a == "--diff" || a == "--report" ||
-					a == "-only" || a == "-diff" || a == "-report" || a == "-filter"
+				needsVal := a == "-n" || a == "--n" || a == "-e" || a == "--e" || a == "-f" || a == "--f" ||
+					a == "--only" || a == "--diff" || a == "--report" ||
+					a == "-only" || a == "-diff" || a == "-report" || a == "-filter" || a == "--filter"
 				if needsVal {
 					i++
 					flagArgs = append(flagArgs, args[i])
