@@ -6,7 +6,6 @@ import (
 	"math"
 	"os"
 	"regexp"
-	"strings"
 	"sync"
 	"syscall"
 	"unicode/utf16"
@@ -84,6 +83,33 @@ func LoadFile(filepath string) ([]byte, func(), error) {
 		syscall.Munmap(data)
 	}
 	return data, cleanup, nil
+}
+
+// ExtractMulti scans data with multiple encodings in parallel, returning
+// deduplicated results. This is faster than calling Extract sequentially
+// for each encoding.
+func ExtractMulti(data []byte, minLen int, encodings []string, sections []internal.SectionInfo, filterPat *regexp.Regexp, showContext bool) []internal.StringResult {
+	if len(encodings) == 1 {
+		return Extract(data, minLen, encodings[0], sections, filterPat, showContext)
+	}
+
+	type encResult struct {
+		results []internal.StringResult
+	}
+
+	ch := make(chan encResult, len(encodings))
+	for _, enc := range encodings {
+		go func(e string) {
+			ch <- encResult{Extract(data, minLen, e, sections, filterPat, showContext)}
+		}(enc)
+	}
+
+	var allResults []internal.StringResult
+	for range encodings {
+		er := <-ch
+		allResults = append(allResults, er.results...)
+	}
+	return allResults
 }
 
 func Extract(data []byte, minLen int, enc string, sections []internal.SectionInfo, filterPat *regexp.Regexp, showContext bool) []internal.StringResult {
@@ -177,10 +203,19 @@ func hexContext(data []byte, offset, length, ctx int) (string, string) {
 	return formatHex(before), formatHex(after)
 }
 
+// formatHex converts bytes to space-separated hex string with pre-allocated buffer.
 func formatHex(b []byte) string {
-	parts := make([]string, len(b))
-	for i, v := range b {
-		parts[i] = fmt.Sprintf("%02X", v)
+	if len(b) == 0 {
+		return ""
 	}
-	return strings.Join(parts, " ")
+	// Pre-allocate: each byte = 2 hex chars + 1 space (except last)
+	buf := make([]byte, 0, len(b)*3-1)
+	hexChars := "0123456789ABCDEF"
+	for i, v := range b {
+		if i > 0 {
+			buf = append(buf, ' ')
+		}
+		buf = append(buf, hexChars[v>>4], hexChars[v&0x0f])
+	}
+	return string(buf)
 }
