@@ -1,7 +1,8 @@
 __pycache__/
 *.pyc
 *.html
+!internal/report/template.html
 *.json
 *.csv
-strings
-bstrings
+/strings
+/bstrings

@@ -1,27 +1,38 @@
 package categorizer
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
-var patterns = map[string]*regexp.Regexp{
-	"url":          regexp.MustCompile(`https?://[^\s<>"']+|ftp://[^\s<>"']+|www\.[^\s<>"']+`),
-	"email":        regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`),
-	"ipv4":         regexp.MustCompile(`\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b`),
-	"ipv6":         regexp.MustCompile(`\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}|[0-9a-fA-F]{1,4}::(?:[0-9a-fA-F]{1,4}:){0,4}[0-9a-fA-F]{1,4}`),
-	"domain":       regexp.MustCompile(`\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+(?:com|net|org|io|ru|cn|tk|xyz|top|info|biz|cc|pw|onion|edu|gov|mil|co|uk|de|fr|jp|au|br|in|nl|it|es|ca|pl|ch|se|no|fi|dk|at|be|cz|kr|tw|mx|za|ar|id|ph|th|vn|sg|hk|nz|ie|pt|il|my|ua|ro|hu|cl|ng|ke|app|dev|gg|me|tv|pro|ai|cloud|site|online|tech|store|blog|live)\b`),
-	"win_path":     regexp.MustCompile(`[A-Za-z]:\\(?:[^\\//:*?"<>|\r\n]+\\)*[^\\//:*?"<>|\r\n]*`),
-	"unix_path":    regexp.MustCompile(`(?:/[a-zA-Z0-9._\-]+){2,}`),
-	"registry":     regexp.MustCompile(`(?:HKEY_[A-Z_]+|HKLM|HKCU|HKCR)\\[^\s]+`),
-	"dll_api":      regexp.MustCompile(`(?i)\b[A-Za-z_][A-Za-z0-9_]*\.(?:dll|sys|ocx|drv)\b|\b(?:Create|Open|Read|Write|Close|Delete|Find|Get|Set|Load|Free|Virtual|Reg|Crypt|Http|Internet|Socket|WSA|Nt|Zw)[A-Z][a-zA-Z0-9_]*(?:A|W|Ex|ExA|ExW)?\b`),
-	"error":        regexp.MustCompile(`(?i)\b(?:error|fail|exception|warning|assert|debug|fatal|panic|abort|denied|invalid|corrupt)\b`),
-	"crypto":       regexp.MustCompile(`(?i)\b(?:AES|RSA|SHA[0-9]*|MD5|HMAC|CBC|ECB|GCM|PKCS|BEGIN\s+(?:RSA|DSA|EC|PRIVATE|PUBLIC|CERTIFICATE))\b|-----BEGIN\s[^\-]+-----`),
-	"base64_blob":  regexp.MustCompile(`(?:[A-Za-z0-9+/]{20,}={0,2})`),
-	"hash_md5":     regexp.MustCompile(`\b[a-fA-F0-9]{32}\b`),
-	"hash_sha1":    regexp.MustCompile(`\b[a-fA-F0-9]{40}\b`),
-	"hash_sha256":  regexp.MustCompile(`\b[a-fA-F0-9]{64}\b`),
-	"credential":   regexp.MustCompile(`(?i)(?:password|passwd|pwd|secret|token|api[_\-]?key|access[_\-]?key|auth[_\-]?token|bearer|credential|AWS_SECRET|AWS_ACCESS|PRIVATE[_\-]?KEY|client[_\-]?secret)\s*[=:]\s*\S+`),
-	"basic_auth":   regexp.MustCompile(`(?i)Basic\s+[A-Za-z0-9+/=]{10,}`),
-	"bearer_token": regexp.MustCompile(`(?i)Bearer\s+[A-Za-z0-9._~+/=\-]{10,}`),
-	"port":         regexp.MustCompile(`(?i)\b(?:port|listen|bind)\s*[=:]\s*\d{1,5}\b`),
+// patternEntry holds a compiled regex and its category name together
+// for cache-friendly iteration.
+type patternEntry struct {
+	name string
+	pat  *regexp.Regexp
+}
+
+// patterns ordered by frequency/cost — cheap checks first, expensive last.
+var patterns = []patternEntry{
+	{"error", regexp.MustCompile(`(?i)\b(?:error|fail|exception|warning|assert|debug|fatal|panic|abort|denied|invalid|corrupt)\b`)},
+	{"dll_api", regexp.MustCompile(`(?i)\b[A-Za-z_][A-Za-z0-9_]*\.(?:dll|sys|ocx|drv)\b|\b(?:Create|Open|Read|Write|Close|Delete|Find|Get|Set|Load|Free|Virtual|Reg|Crypt|Http|Internet|Socket|WSA|Nt|Zw)[A-Z][a-zA-Z0-9_]*(?:A|W|Ex|ExA|ExW)?\b`)},
+	{"win_path", regexp.MustCompile(`[A-Za-z]:\\(?:[^\\//:*?"<>|\r\n]+\\)*[^\\//:*?"<>|\r\n]*`)},
+	{"unix_path", regexp.MustCompile(`(?:/[a-zA-Z0-9._\-]+){2,}`)},
+	{"url", regexp.MustCompile(`https?://[^\s<>"']+|ftp://[^\s<>"']+|www\.[^\s<>"']+`)},
+	{"email", regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)},
+	{"ipv4", regexp.MustCompile(`\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b`)},
+	{"registry", regexp.MustCompile(`(?:HKEY_[A-Z_]+|HKLM|HKCU|HKCR)\\[^\s]+`)},
+	{"credential", regexp.MustCompile(`(?i)(?:password|passwd|pwd|secret|token|api[_\-]?key|access[_\-]?key|auth[_\-]?token|bearer|credential|AWS_SECRET|AWS_ACCESS|PRIVATE[_\-]?KEY|client[_\-]?secret)\s*[=:]\s*\S+`)},
+	{"basic_auth", regexp.MustCompile(`(?i)Basic\s+[A-Za-z0-9+/=]{10,}`)},
+	{"bearer_token", regexp.MustCompile(`(?i)Bearer\s+[A-Za-z0-9._~+/=\-]{10,}`)},
+	{"crypto", regexp.MustCompile(`(?i)\b(?:AES|RSA|SHA[0-9]*|MD5|HMAC|CBC|ECB|GCM|PKCS|BEGIN\s+(?:RSA|DSA|EC|PRIVATE|PUBLIC|CERTIFICATE))\b|-----BEGIN\s[^\-]+-----`)},
+	{"hash_sha256", regexp.MustCompile(`\b[a-fA-F0-9]{64}\b`)},
+	{"hash_sha1", regexp.MustCompile(`\b[a-fA-F0-9]{40}\b`)},
+	{"hash_md5", regexp.MustCompile(`\b[a-fA-F0-9]{32}\b`)},
+	{"base64_blob", regexp.MustCompile(`(?:[A-Za-z0-9+/]{20,}={0,2})`)},
+	{"port", regexp.MustCompile(`(?i)\b(?:port|listen|bind)\s*[=:]\s*\d{1,5}\b`)},
+	{"domain", regexp.MustCompile(`\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+(?:com|net|org|io|ru|cn|tk|xyz|top|info|biz|cc|pw|onion|edu|gov|mil|co|uk|de|fr|jp|au|br|in|nl|it|es|ca|pl|ch|se|no|fi|dk|at|be|cz|kr|tw|mx|za|ar|id|ph|th|vn|sg|hk|nz|ie|pt|il|my|ua|ro|hu|cl|ng|ke|app|dev|gg|me|tv|pro|ai|cloud|site|online|tech|store|blog|live)\b`)},
+	{"ipv6", regexp.MustCompile(`\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}|[0-9a-fA-F]{1,4}::(?:[0-9a-fA-F]{1,4}:){0,4}[0-9a-fA-F]{1,4}`)},
 }
 
 var suspiciousAPIs = map[string][]string{
@@ -36,7 +47,7 @@ var suspiciousAPIs = map[string][]string{
 	"service":   {"OpenSCManager", "CreateService", "StartService", "ControlService", "DeleteService", "ChangeServiceConfig"},
 }
 
-// Pre-compute lowercased API names to avoid per-call allocations
+// Pre-compute lowercased API names to avoid per-call allocations.
 var suspiciousAPIsLower map[string][]string
 
 func init() {
@@ -44,7 +55,7 @@ func init() {
 	for group, apis := range suspiciousAPIs {
 		lowered := make([]string, len(apis))
 		for i, api := range apis {
-			lowered[i] = toLower(api)
+			lowered[i] = strings.ToLower(api)
 		}
 		suspiciousAPIsLower[group] = lowered
 	}
@@ -62,11 +73,13 @@ var OnlyPresets = map[string][]string{
 	"suspicious": {"dll_api", "credential", "basic_auth", "bearer_token", "crypto"},
 }
 
+// Categorize assigns all matching categories to a string.
+// Returns ["general"] if no specific category matched.
 func Categorize(s string) []string {
-	var cats []string
-	for name, pat := range patterns {
-		if pat.MatchString(s) {
-			cats = append(cats, name)
+	cats := make([]string, 0, 4)
+	for i := range patterns {
+		if patterns[i].pat.MatchString(s) {
+			cats = append(cats, patterns[i].name)
 		}
 	}
 	if len(cats) == 0 {
@@ -75,38 +88,16 @@ func Categorize(s string) []string {
 	return cats
 }
 
+// GetSuspiciousGroup returns the API group name if the string contains
+// a known suspicious Windows API call, or "" otherwise.
 func GetSuspiciousGroup(s string) string {
-	lower := toLower(s)
+	lower := strings.ToLower(s)
 	for group, apis := range suspiciousAPIsLower {
 		for _, api := range apis {
-			if containsLower(lower, api) {
+			if strings.Contains(lower, api) {
 				return group
 			}
 		}
 	}
 	return ""
-}
-
-func toLower(s string) string {
-	b := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		b[i] = c
-	}
-	return string(b)
-}
-
-func containsLower(s, substr string) bool {
-	if len(substr) > len(s) {
-		return false
-	}
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
